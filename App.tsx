@@ -3,6 +3,74 @@ import { Category, FinancialItem, CategoryConfig, GameLevel, GameState, Financia
 import { CATEGORIES_CONFIG, ALL_FINANCIAL_ITEMS, LEVEL_CONFIG } from './constants';
 import { CheckCircleIcon, XCircleIcon, LightBulbIcon, SparklesIcon, TrophyIcon } from './components/Icons';
 
+// Add this at the top or in a new file (api.js or constants.ts)
+const API_BASE_URL = 'http://localhost:5000/api';
+
+async function studentLogin(email: string, password?: string, otp?: string) {
+  const res = await fetch(`${API_BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, otp }),
+  });
+  return res.json();
+}
+
+async function adminLogin(username: string, password: string) {
+  const res = await fetch(`${API_BASE_URL}/auth/admin-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  return res.json();
+}
+
+async function saveSession(sessionData: any) {
+  const res = await fetch(`${API_BASE_URL}/session`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sessionData),
+  });
+  return res.json();
+}
+
+async function getAllSessions(): Promise<any[]> {
+  const res = await fetch(`${API_BASE_URL}/session`);
+  return res.json();
+}
+
+async function getAttemptedLevels(email: string): Promise<number[]> {
+  const res = await fetch(`${API_BASE_URL}/auth/attempted-levels?email=${encodeURIComponent(email)}`);
+  const data = await res.json();
+  return data.attemptedLevels || [];
+}
+
+async function analyzeSession(sessionData: any) {
+  const res = await fetch(`${API_BASE_URL}/ai/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ session: sessionData }),
+  });
+  return res.json();
+}
+
+// Add registration and OTP helpers
+async function registerStudent(email: string, password: string, mobile?: string, studentId?: string) {
+  const res = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password, mobile, studentId }),
+  });
+  return res.json();
+}
+async function requestOtp(email: string) {
+  const res = await fetch(`${API_BASE_URL}/auth/request-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return res.json();
+}
+
 const shuffleArray = <T,>(array: T[]): T[] => {
   const newArray = [...array];
   for (let i = newArray.length - 1; i > 0; i--) {
@@ -13,83 +81,160 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 };
 
 interface LoginScreenProps {
-  onLoginSuccess: (mobileNumber: string, studentId?: string) => void;
+  onLoginSuccess: (email: string, studentId?: string, mobile?: string) => void;
   onNavigateToAdminLogin: () => void;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavigateToAdminLogin }) => {
-  const [mobileNumber, setMobileNumber] = useState('');
-  const [studentId, setStudentId] = useState('');
-  const [password, setPassword] = useState(''); 
-
-  const handleLogin = (e: React.FormEvent) => {
+// Update LoginScreen to include registration and login tabs
+const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess, onNavigateToAdminLogin }: LoginScreenProps) => {
+  const [tab, setTab] = useState<'login' | 'register'>('login');
+  // Login state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginMessage, setLoginMessage] = useState<string | null>(null);
+  // Registration state
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regMobile, setRegMobile] = useState('');
+  const [regMessage, setRegMessage] = useState<string | null>(null);
+  // Login handler
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (mobileNumber.trim() === '' || studentId.trim() === '') {
-      alert('Please enter both mobile number and student ID.');
+    setLoginMessage(null);
+    if (!email.trim() || !password.trim()) {
+      setLoginMessage('Please enter your email and password.');
       return;
     }
-    onLoginSuccess(mobileNumber, studentId);
+    const result = await studentLogin(email, password);
+    if (result.student) {
+      onLoginSuccess(result.student.email, result.student.studentId, result.student.mobile);
+    } else {
+      setLoginMessage(result.message || 'Login failed');
+    }
   };
-
+  // Registration handler
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegMessage(null);
+    if (!regEmail.trim() || !regPassword.trim()) {
+      setRegMessage('Please enter your @micamail.in email and password.');
+      return;
+    }
+    if (!regEmail.endsWith('@micamail.in')) {
+      setRegMessage('Only @micamail.in emails are allowed.');
+      return;
+    }
+    const result = await registerStudent(regEmail, regPassword, regMobile);
+    setRegMessage(result.message || 'Registration complete.');
+  };
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-800 to-slate-950 p-4 text-white">
       <div className="bg-white/10 backdrop-blur-lg p-8 sm:p-12 rounded-xl shadow-2xl text-center max-w-md w-full">
         <SparklesIcon className="w-16 h-16 text-sky-300 mx-auto mb-6" />
-        <h1 className="text-3xl sm:text-4xl font-bold mb-3">Student Login</h1>
-        <p className="text-slate-300 mb-8">Enter your credentials to access the game.</p>
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label htmlFor="mobileNumber" className="block text-sm font-medium text-slate-200 text-left mb-1">
-              Mobile Number
-            </label>
-            <input
-              type="tel"
-              id="mobileNumber"
-              value={mobileNumber}
-              onChange={(e) => setMobileNumber(e.target.value)}
-              placeholder="Enter your mobile number"
-              className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="studentId" className="block text-sm font-medium text-slate-200 text-left mb-1">
-              Student ID
-            </label>
-            <input
-              type="text"
-              id="studentId"
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              placeholder="Enter your Student ID"
-              className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-200 text-left mb-1">
-              Password / OTP (Conceptual)
-            </label>
-            <input
-              type="password"
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password or OTP"
-              className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
-            />
-             <p className="text-xs text-slate-400 mt-1 text-left">For this demo, any mobile/ID will work. Password field is for illustration.</p>
-          </div>
+        <div className="flex justify-center mb-6">
           <button
-            type="submit"
-            className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105"
+            className={`px-4 py-2 rounded-t-lg font-semibold ${tab === 'login' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300'}`}
+            onClick={() => setTab('login')}
           >
-            Login / Start
+            Login
           </button>
-        </form>
-         <p className="text-xs text-slate-500 mt-6">
-          Full authentication and data storage require a backend system.
-        </p>
+          <button
+            className={`px-4 py-2 rounded-t-lg font-semibold ml-2 ${tab === 'register' ? 'bg-sky-500 text-white' : 'bg-slate-700 text-slate-300'}`}
+            onClick={() => setTab('register')}
+          >
+            Register
+          </button>
+        </div>
+        {tab === 'login' ? (
+          <form onSubmit={handleLogin} className="space-y-6">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-slate-200 text-left mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                id="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-slate-200 text-left mb-1">
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
+                required
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105"
+            >
+              Login / Start
+            </button>
+            {loginMessage && <p className="text-xs text-rose-300 mt-2">{loginMessage}</p>}
+          </form>
+        ) : (
+          <form onSubmit={handleRegister} className="space-y-6">
+            <div>
+              <label htmlFor="regEmail" className="block text-sm font-medium text-slate-200 text-left mb-1">
+                Email (@micamail.in)
+              </label>
+              <input
+                type="email"
+                id="regEmail"
+                value={regEmail}
+                onChange={(e) => setRegEmail(e.target.value)}
+                placeholder="Enter your @micamail.in email"
+                className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="regPassword" className="block text-sm font-medium text-slate-200 text-left mb-1">
+                Password
+              </label>
+              <input
+                type="password"
+                id="regPassword"
+                value={regPassword}
+                onChange={(e) => setRegPassword(e.target.value)}
+                placeholder="Set a password"
+                className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="regMobile" className="block text-sm font-medium text-slate-200 text-left mb-1">
+                Mobile (optional)
+              </label>
+              <input
+                type="tel"
+                id="regMobile"
+                value={regMobile}
+                onChange={(e) => setRegMobile(e.target.value)}
+                placeholder="Enter your mobile number"
+                className="w-full px-4 py-3 rounded-lg bg-slate-700/50 border border-slate-600 focus:ring-2 focus:ring-sky-400 focus:border-sky-400 outline-none transition"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105"
+            >
+              Register
+            </button>
+            {regMessage && <p className="text-xs text-emerald-300 mt-2">{regMessage}</p>}
+          </form>
+        )}
         <button 
           onClick={onNavigateToAdminLogin}
           className="mt-4 text-xs text-sky-300 hover:text-sky-200 underline"
@@ -106,22 +251,21 @@ interface AdminLoginScreenProps {
   onBackToStudentLogin: () => void;
 }
 
-const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onAdminLoginSuccess, onBackToStudentLogin }) => {
+const AdminLoginScreen: React.FC<AdminLoginScreenProps> = ({ onAdminLoginSuccess, onBackToStudentLogin }: AdminLoginScreenProps) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
 
-  const handleAdminLogin = (e: React.FormEvent) => {
+  const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (username.trim() === '') { // Simplified check for demo
+    if (username.trim() === '') {
       alert('Please enter a username.');
       return;
     }
-    // In a real app, validate against a backend.
-    // For this mock, we'll assume any username with "admin" in it is valid.
-    if (username.toLowerCase().includes('admin')) {
-        onAdminLoginSuccess({ username });
+    const result = await adminLogin(username, password);
+    if (result.admin) {
+      onAdminLoginSuccess({ username: result.admin.username });
     } else {
-        alert('Mock admin login: Username should contain "admin" for this demo.');
+      alert(result.message || 'Admin login failed');
     }
   };
 
@@ -185,13 +329,53 @@ interface AdminDashboardScreenProps {
   onAdminLogout: () => void;
 }
 
+// Add a simple Modal component
+const Modal: React.FC<{ open: boolean; onClose: () => void; children: React.ReactNode }> = ({ open, onClose, children }) => {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+      <div className="bg-white text-black rounded-lg shadow-lg p-6 max-w-lg w-full relative">
+        <button onClick={onClose} className="absolute top-2 right-2 text-xl font-bold">&times;</button>
+        {children}
+      </div>
+    </div>
+  );
+};
+
 const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({ adminUser, onAdminLogout }) => {
-  // This is a conceptual dashboard. Data would be fetched from a backend.
-  const mockStudentData = [
-    { studentId: "S101", mobile: "98XXXXXX01", level: 1, score: 8, totalQ: 10, timeTaken: 300, startTime: "2023-10-27T10:00:00Z", endTime: "2023-10-27T10:05:00Z", feedback: "Good!" },
-    { studentId: "S102", mobile: "98XXXXXX02", level: 2, score: 6, totalQ: 10, timeTaken: 450, startTime: "2023-10-27T11:00:00Z", endTime: "2023-10-27T11:07:30Z", feedback: "Challenging." },
-    { studentId: "S101", mobile: "98XXXXXX01", level: 3, score: 9, totalQ: 10, timeTaken: 600, startTime: "2023-10-28T09:00:00Z", endTime: "2023-10-28T09:10:00Z", feedback: null },
-  ];
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [selectedSession, setSelectedSession] = useState<any | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAllSessions().then((data) => setSessions(data));
+  }, []);
+  const handleViewDetails = (session: any) => {
+    setSelectedSession(session);
+    setModalOpen(true);
+  };
+  const handleCloseModal = () => {
+    setModalOpen(false);
+    setSelectedSession(null);
+  };
+
+  const handleTriggerAI = async () => {
+    if (!selectedSession) return;
+    setAiLoading(true);
+    setAiError(null);
+    setAiAnalysis(null);
+    try {
+      const result = await analyzeSession(selectedSession);
+      setAiAnalysis(result.analysis || 'No analysis returned.');
+    } catch (err: any) {
+      setAiError('Failed to get AI analysis.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-slate-800 p-4 sm:p-6 text-white">
@@ -228,16 +412,16 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({ adminUser, 
               </tr>
             </thead>
             <tbody className="bg-slate-700 divide-y divide-slate-600">
-              {mockStudentData.map((data, index) => (
+              {sessions.map((session, index) => (
                 <tr key={index} className="hover:bg-slate-600/70 transition-colors">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.studentId}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.mobile}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.level}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.score}/{data.totalQ}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.timeTaken}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm">{data.feedback ? "Yes" : "No"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.studentId}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.mobile}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.level}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.score}/{session.totalQuestions}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.timeTakenSeconds}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-sm">{session.feedbackText ? "Yes" : "No"}</td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm">
-                    <button className="text-sky-400 hover:text-sky-300 underline text-xs">View Details</button>
+                    <button className="text-sky-400 hover:text-sky-300 underline text-xs" onClick={() => handleViewDetails(session)}>View Details</button>
                   </td>
                 </tr>
               ))}
@@ -262,6 +446,41 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({ adminUser, 
           Trigger AI Analysis (Backend Feature)
         </button>
       </div>
+      <Modal open={modalOpen} onClose={handleCloseModal}>
+        {selectedSession ? (
+          <div>
+            <h2 className="text-xl font-bold mb-2">Session Details</h2>
+            <pre className="bg-slate-100 text-slate-800 p-2 rounded overflow-x-auto text-xs max-h-96 mb-4">{JSON.stringify(selectedSession, null, 2)}</pre>
+            <button
+              className="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md transition disabled:opacity-50 mb-2"
+              onClick={handleTriggerAI}
+              disabled={aiLoading}
+            >
+              {aiLoading ? 'Analyzing...' : 'Trigger AI Analysis'}
+            </button>
+            {aiError && <div className="text-red-600 text-xs mb-2">{aiError}</div>}
+            {aiAnalysis && (
+              <div className="bg-amber-100 text-amber-900 p-3 rounded mt-2 text-sm">
+                <strong>AI Analysis:</strong>
+                <div
+                  className="overflow-y-auto max-h-64 whitespace-pre-line border border-amber-200 rounded p-2 mt-2 bg-white"
+                  style={{ fontFamily: 'inherit' }}
+                >
+                  {aiAnalysis}
+                </div>
+                <button
+                  className="mt-2 px-3 py-1 bg-sky-500 hover:bg-sky-600 text-white rounded text-xs"
+                  onClick={() => {
+                    navigator.clipboard.writeText(aiAnalysis);
+                  }}
+                >
+                  Copy to Clipboard
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 };
@@ -270,15 +489,38 @@ const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({ adminUser, 
 interface LevelSelectorProps {
   onSelectLevel: (level: GameLevel) => void;
   studentIdentifier: string | null;
+  attemptedLevels: number[];
+  onLogout: () => void;
 }
 
-const LevelSelector: React.FC<LevelSelectorProps> = ({ onSelectLevel, studentIdentifier }) => {
+// Add a StudentLogoutButton component
+const StudentLogoutButton: React.FC<{ onLogout: () => void }> = ({ onLogout }) => (
+  <button
+    onClick={onLogout}
+    className="fixed top-4 right-4 bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow-md z-50"
+  >
+    Logout
+  </button>
+);
+
+const LevelSelector: React.FC<LevelSelectorProps> = ({ onSelectLevel, studentIdentifier, attemptedLevels, onLogout }) => {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-slate-700 to-slate-900 p-4 text-white">
+      <StudentLogoutButton onLogout={onLogout} />
       <div className="bg-white/10 backdrop-blur-lg p-8 sm:p-12 rounded-xl shadow-2xl text-center max-w-lg w-full">
         <SparklesIcon className="w-16 h-16 text-sky-300 mx-auto mb-6" />
         <h1 className="text-4xl sm:text-5xl font-bold mb-1">Welcome{studentIdentifier ? `, ${studentIdentifier}` : ''}!</h1>
         <p className="text-lg sm:text-xl text-slate-300 mb-8">Select your difficulty level to start the Financial Literacy Challenge.</p>
+        {attemptedLevels.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-emerald-300 mb-2">Attempted Levels:</h2>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {attemptedLevels.map((level) => (
+                <span key={level} className="bg-emerald-600 text-white px-3 py-1 rounded-full text-xs">Level {level}</span>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="space-y-4">
           {LEVEL_CONFIG.map(levelInfo => (
             <button
@@ -286,9 +528,13 @@ const LevelSelector: React.FC<LevelSelectorProps> = ({ onSelectLevel, studentIde
               onClick={() => onSelectLevel(levelInfo.level)}
               className={`w-full ${levelInfo.color} ${levelInfo.hoverColor} text-white font-semibold py-4 px-6 rounded-lg text-xl shadow-md transition duration-150 ease-in-out transform hover:scale-105 focus:ring-4 focus:ring-opacity-50 ${levelInfo.borderColor.replace('border-', 'ring-')}`}
               aria-label={`Select Level ${levelInfo.level}: ${levelInfo.name}`}
+              disabled={attemptedLevels.includes(levelInfo.level)}
             >
               Level {levelInfo.level}: {levelInfo.name}
               <span className="block text-sm font-normal opacity-80 mt-1">{levelInfo.description}</span>
+              {attemptedLevels.includes(levelInfo.level) && (
+                <span className="ml-2 text-xs text-emerald-300">(Attempted)</span>
+              )}
             </button>
           ))}
         </div>
@@ -319,6 +565,7 @@ const StudentFeedbackScreen: React.FC<StudentFeedbackScreenProps> = ({ onSubmitF
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-teal-600 to-cyan-700 p-4 text-white">
+      <StudentLogoutButton onLogout={handleStudentLogout} />
       <div className="bg-white/15 backdrop-blur-xl p-8 sm:p-10 rounded-xl shadow-2xl max-w-lg w-full">
         <h1 className="text-3xl sm:text-4xl font-bold mb-3 text-center">Feedback</h1>
         <p className="text-slate-200 mb-1 text-center">Student: {studentIdentifier || "N/A"}</p>
@@ -372,6 +619,7 @@ const ReportPreviewScreen: React.FC<ReportPreviewScreenProps> = ({
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-indigo-600 to-purple-700 p-4 text-white">
+      <StudentLogoutButton onLogout={handleStudentLogout} />
       <div className="bg-white/15 backdrop-blur-xl p-8 sm:p-10 rounded-xl shadow-2xl max-w-xl w-full text-left">
         <h1 className="text-3xl sm:text-4xl font-bold mb-6 text-center">Mock Performance Report</h1>
         
@@ -451,11 +699,24 @@ const App: React.FC = () => {
   
   const ITEMS_PER_GAME = 10;
 
+  // In App, track attemptedLevels in state
+  const [attemptedLevels, setAttemptedLevels] = useState<number[]>([]);
+
+  // In App, add a handleStudentLogout function (move it above all usages)
+  const handleStudentLogout = () => {
+    setCurrentUserMobile(null);
+    setCurrentStudentId(null);
+    setGameState(GameState.Login);
+    setAttemptedLevels([]);
+  };
+
   // Student Login
-  const handleLoginSuccess = (mobileNumber: string, studentIdInput?: string) => {
-    setCurrentUserMobile(mobileNumber);
+  const handleLoginSuccess = async (email: string, studentIdInput?: string, mobile?: string) => {
+    setCurrentUserMobile(mobile || null);
     setCurrentStudentId(studentIdInput || null);
     setGameState(GameState.LevelSelection);
+    const levels = await getAttemptedLevels(email);
+    setAttemptedLevels(levels);
   };
 
   // Admin Login
@@ -558,11 +819,27 @@ const App: React.FC = () => {
     setGameState(GameState.StudentFeedback);
   };
 
-  const handleSubmitFeedback = (feedback: string) => {
+  const handleSubmitFeedback = async (feedback: string) => {
     setStudentFeedbackText(feedback);
-    // Conceptual: Send data to backend here
-    // const sessionData = { /* ... */ };
-    // console.log("Mock API Call: Sending session data with feedback", feedback, sessionData);
+    // Build session data
+    let timeTakenSeconds = 0;
+    if (sessionStartTimeRef.current) {
+      const now = new Date();
+      timeTakenSeconds = Math.round((now.getTime() - (sessionStartTimeRef.current as Date).getTime()) / 1000);
+    }
+    const sessionData = {
+      studentId: currentStudentId,
+      mobile: currentUserMobile,
+      level: selectedLevel,
+      score,
+      totalQuestions: gameItems.length,
+      answers: [], // TODO: fill with actual answers if available
+      startTime: sessionStartTimeRef.current,
+      endTime: new Date(),
+      timeTakenSeconds,
+      feedbackText: feedback,
+    };
+    await saveSession(sessionData);
     setGameState(GameState.ReportPreview);
   };
   
@@ -590,17 +867,21 @@ const App: React.FC = () => {
     return <AdminDashboardScreen adminUser={currentAdmin} onAdminLogout={handleAdminLogout} />;
   }
   if (gameState === GameState.LevelSelection) {
-    return <LevelSelector onSelectLevel={handleSelectLevel} studentIdentifier={studentDisplayIdentifier} />;
+    return <LevelSelector onSelectLevel={handleSelectLevel} studentIdentifier={studentDisplayIdentifier} attemptedLevels={attemptedLevels} onLogout={handleStudentLogout} />;
   }
   if (gameState === GameState.StudentFeedback) {
-    return <StudentFeedbackScreen 
-             onSubmitFeedback={handleSubmitFeedback} 
-             studentIdentifier={studentDisplayIdentifier}
-             level={selectedLevel}
-           />;
+    return <>
+      <StudentLogoutButton onLogout={handleStudentLogout} />
+      <StudentFeedbackScreen 
+        onSubmitFeedback={handleSubmitFeedback} 
+        studentIdentifier={studentDisplayIdentifier}
+        level={selectedLevel}
+      />
+    </>;
   }
   if (gameState === GameState.ReportPreview) {
-    return (
+    return <>
+      <StudentLogoutButton onLogout={handleStudentLogout} />
       <ReportPreviewScreen
         studentIdentifier={studentDisplayIdentifier}
         score={score}
@@ -610,7 +891,7 @@ const App: React.FC = () => {
         onPlayAgain={handlePlayAgainFromReportOrGameOver} // This now goes to LevelSelection
         onBackToLevels={handlePlayAgainFromReportOrGameOver} // Consistent navigation
       />
-    );
+    </>;
   }
   if (gameState === GameState.GameOver) {
     const totalQuestions = gameItems.length;
@@ -623,8 +904,9 @@ const App: React.FC = () => {
     const levelInfo = selectedLevel ? LEVEL_CONFIG.find(l => l.level === selectedLevel) : null;
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-sky-400 to-indigo-600 p-4 text-white">
-        <div className="bg-white/20 backdrop-blur-lg p-8 rounded-xl shadow-2xl text-center max-w-md w-full">
+      <>
+        <StudentLogoutButton onLogout={handleStudentLogout} />
+        <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-sky-400 to-indigo-600 p-4 text-white">
           <TrophyIcon className="w-24 h-24 text-yellow-300 mx-auto mb-6" />
           <h1 className="text-4xl font-bold mb-2">Game Over!</h1>
           {levelInfo && <p className="text-lg mb-4">(Level {levelInfo.level}: {levelInfo.name})</p>}
@@ -646,7 +928,7 @@ const App: React.FC = () => {
             </button>
           </div>
         </div>
-      </div>
+      </>
     );
   }
 
@@ -683,125 +965,128 @@ const App: React.FC = () => {
     }
 
     return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 selection:bg-sky-200 selection:text-sky-900">
-        <header className="w-full max-w-2xl mb-6 text-center">
-          <div className="flex justify-between items-center text-xs text-slate-500 mb-2">
-              <span>Student: {studentDisplayId}</span>
-              <span>Level: {levelInfo?.level} ({levelInfo?.name})</span>
+      <>
+        <StudentLogoutButton onLogout={handleStudentLogout} />
+        <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-4 selection:bg-sky-200 selection:text-sky-900">
+          <header className="w-full max-w-2xl mb-6 text-center">
+            <div className="flex justify-between items-center text-xs text-slate-500 mb-2">
+                <span>Student: {studentDisplayId}</span>
+                <span>Level: {levelInfo?.level} ({levelInfo?.name})</span>
+              </div>
+            <h1 className="text-3xl sm:text-4xl font-bold text-slate-800 flex items-center justify-center">
+              <SparklesIcon className="w-9 h-9 sm:w-10 sm:h-10 mr-3 text-sky-500" />
+              Financial Literacy Challenge
+            </h1>
+          </header>
+
+          <main className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl">
+            <div className="mb-6 pb-4 border-b border-slate-200">
+              <div className="flex justify-between items-center text-sm text-slate-600 mb-2">
+                <span>Question: {questionNumber} / {totalQuestionsInGame}</span>
+                <span>Score: {score}</span>
+              </div>
+              <div className="bg-slate-100 p-4 rounded-lg min-h-[80px] flex flex-col items-center justify-center">
+                <p className="text-xl sm:text-2xl font-semibold text-slate-700 text-center" aria-live="polite">
+                  {currentItem.name}
+                </p>
+                {isLevel4 && <p className="text-sm text-sky-600 mt-1 font-medium"> (Select two categories)</p>}
+              </div>
             </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-slate-800 flex items-center justify-center">
-            <SparklesIcon className="w-9 h-9 sm:w-10 sm:h-10 mr-3 text-sky-500" />
-            Financial Literacy Challenge
-          </h1>
-        </header>
 
-        <main className="bg-white p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-2xl">
-          <div className="mb-6 pb-4 border-b border-slate-200">
-            <div className="flex justify-between items-center text-sm text-slate-600 mb-2">
-              <span>Question: {questionNumber} / {totalQuestionsInGame}</span>
-              <span>Score: {score}</span>
-            </div>
-            <div className="bg-slate-100 p-4 rounded-lg min-h-[80px] flex flex-col items-center justify-center">
-              <p className="text-xl sm:text-2xl font-semibold text-slate-700 text-center" aria-live="polite">
-                {currentItem.name}
-              </p>
-              {isLevel4 && <p className="text-sm text-sky-600 mt-1 font-medium"> (Select two categories)</p>}
-            </div>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6" role="group" aria-label="Categories">
+              {CATEGORIES_CONFIG.map((catConfig) => {
+                const isSelected = selectedCategories.includes(catConfig.id);
+                let buttonStyle = "";
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6" role="group" aria-label="Categories">
-            {CATEGORIES_CONFIG.map((catConfig) => {
-              const isSelected = selectedCategories.includes(catConfig.id);
-              let buttonStyle = "";
+                if (showFeedback) {
+                  let isActualCorrectCategory = false;
+                  if (isLevel4 && currentItem.multiCategories) {
+                    isActualCorrectCategory = currentItem.multiCategories.some(mc => mc.category === catConfig.id);
+                  } else if (!isLevel4 && currentItem.category) {
+                    isActualCorrectCategory = currentItem.category === catConfig.id;
+                  }
 
-              if (showFeedback) {
-                let isActualCorrectCategory = false;
-                if (isLevel4 && currentItem.multiCategories) {
-                  isActualCorrectCategory = currentItem.multiCategories.some(mc => mc.category === catConfig.id);
-                } else if (!isLevel4 && currentItem.category) {
-                  isActualCorrectCategory = currentItem.category === catConfig.id;
-                }
-
-                if (isActualCorrectCategory) { 
-                  buttonStyle = `ring-4 ring-offset-2 ${catConfig.borderColor} ${catConfig.color}`;
-                } else if (isSelected && !isActualCorrectCategory) { 
-                  buttonStyle = `ring-4 ring-offset-2 ring-red-500 ${catConfig.color} opacity-70`;
+                  if (isActualCorrectCategory) { 
+                    buttonStyle = `ring-4 ring-offset-2 ${catConfig.borderColor} ${catConfig.color}`;
+                  } else if (isSelected && !isActualCorrectCategory) { 
+                    buttonStyle = `ring-4 ring-offset-2 ring-red-500 ${catConfig.color} opacity-70`;
+                  } else { 
+                    buttonStyle = 'opacity-60';
+                  }
                 } else { 
-                  buttonStyle = 'opacity-60';
+                  buttonStyle = `${catConfig.hoverColor} transform hover:scale-105 focus:ring-4 focus:ring-opacity-50`;
+                  if (isSelected) {
+                    buttonStyle += ` ring-4 ring-offset-2 ${catConfig.borderColor} ring-opacity-75`;
+                  }
                 }
-              } else { 
-                buttonStyle = `${catConfig.hoverColor} transform hover:scale-105 focus:ring-4 focus:ring-opacity-50`;
-                if (isSelected) {
-                  buttonStyle += ` ring-4 ring-offset-2 ${catConfig.borderColor} ring-opacity-75`;
-                }
-              }
 
-              return (
+                return (
+                  <button
+                    key={catConfig.id}
+                    onClick={() => handleCategorySelect(catConfig.id)}
+                    disabled={showFeedback || (isLevel4 && selectedCategories.length >= 2 && !isSelected)}
+                    aria-pressed={isSelected}
+                    className={`
+                      p-4 rounded-lg text-white font-medium text-left transition-all duration-150 ease-in-out
+                      ${catConfig.color} ${buttonStyle}
+                      disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+                    `}
+                  >
+                    <span className="text-lg">{catConfig.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {!showFeedback && (
+              <button
+                onClick={handleSubmit}
+                disabled={
+                  (isLevel4 && selectedCategories.length !== 2) ||
+                  (!isLevel4 && selectedCategories.length !== 1)
+                }
+                className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 focus:ring-4 focus:ring-sky-300"
+              >
+                Submit Answer
+              </button>
+            )}
+
+            {showFeedback && (
+              <div className={`mt-6 p-4 rounded-lg bg-opacity-80
+                ${isCorrect ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-rose-50 text-rose-700 border border-rose-300'}`}
+                role="alert"
+              >
+                <div className="flex items-center mb-2">
+                  {isCorrect ? (
+                    <CheckCircleIcon className="w-7 h-7 mr-2 text-emerald-500 flex-shrink-0" />
+                  ) : (
+                    <XCircleIcon className="w-7 h-7 mr-2 text-rose-500 flex-shrink-0" />
+                  )}
+                  <h3 className="text-xl font-semibold">
+                    {feedbackMessage}
+                  </h3>
+                </div>
+                <div className="flex items-start text-sm mt-1">
+                  <LightBulbIcon className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
+                  <p>{currentItem.explanation}</p>
+                </div>
                 <button
-                  key={catConfig.id}
-                  onClick={() => handleCategorySelect(catConfig.id)}
-                  disabled={showFeedback || (isLevel4 && selectedCategories.length >= 2 && !isSelected)}
-                  aria-pressed={isSelected}
-                  className={`
-                    p-4 rounded-lg text-white font-medium text-left transition-all duration-150 ease-in-out
-                    ${catConfig.color} ${buttonStyle}
-                    disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none
+                  onClick={handleNextItem}
+                  className={`w-full mt-4 font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105 focus:ring-4
+                  ${isCorrect ? 'bg-emerald-500 hover:bg-emerald-600 text-white focus:ring-emerald-300' : 'bg-rose-500 hover:bg-rose-600 text-white focus:ring-rose-300'}
                   `}
                 >
-                  <span className="text-lg">{catConfig.label}</span>
+                  {currentItemIndex < gameItems.length - 1 ? 'Next Question' : 'Show Results'}
                 </button>
-              );
-            })}
-          </div>
-
-          {!showFeedback && (
-            <button
-              onClick={handleSubmit}
-              disabled={
-                (isLevel4 && selectedCategories.length !== 2) ||
-                (!isLevel4 && selectedCategories.length !== 1)
-              }
-              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105 focus:ring-4 focus:ring-sky-300"
-            >
-              Submit Answer
-            </button>
-          )}
-
-          {showFeedback && (
-            <div className={`mt-6 p-4 rounded-lg bg-opacity-80
-              ${isCorrect ? 'bg-emerald-50 text-emerald-700 border border-emerald-300' : 'bg-rose-50 text-rose-700 border border-rose-300'}`}
-              role="alert"
-            >
-              <div className="flex items-center mb-2">
-                {isCorrect ? (
-                  <CheckCircleIcon className="w-7 h-7 mr-2 text-emerald-500 flex-shrink-0" />
-                ) : (
-                  <XCircleIcon className="w-7 h-7 mr-2 text-rose-500 flex-shrink-0" />
-                )}
-                <h3 className="text-xl font-semibold">
-                  {feedbackMessage}
-                </h3>
               </div>
-              <div className="flex items-start text-sm mt-1">
-                <LightBulbIcon className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" />
-                <p>{currentItem.explanation}</p>
-              </div>
-              <button
-                onClick={handleNextItem}
-                className={`w-full mt-4 font-semibold py-3 px-6 rounded-lg text-lg shadow-md transition duration-150 ease-in-out transform hover:scale-105 focus:ring-4
-                ${isCorrect ? 'bg-emerald-500 hover:bg-emerald-600 text-white focus:ring-emerald-300' : 'bg-rose-500 hover:bg-rose-600 text-white focus:ring-rose-300'}
-                `}
-              >
-                {currentItemIndex < gameItems.length - 1 ? 'Next Question' : 'Show Results'}
-              </button>
-            </div>
-          )}
-        </main>
-        <footer className="mt-8 text-center text-sm text-slate-500">
-          <p>&copy; {new Date().getFullYear()} Financial Literacy Game. Focused on Indian Annual Reports.</p>
-          <p>Displaying {totalQuestionsInGame > 0 ? totalQuestionsInGame : ITEMS_PER_GAME} questions per game session.</p>
-        </footer>
-      </div>
+            )}
+          </main>
+          <footer className="mt-8 text-center text-sm text-slate-500">
+            <p>&copy; {new Date().getFullYear()} Financial Literacy Game. Focused on Indian Annual Reports.</p>
+            <p>Displaying {totalQuestionsInGame > 0 ? totalQuestionsInGame : ITEMS_PER_GAME} questions per game session.</p>
+          </footer>
+        </div>
+      </>
     );
   }
   
